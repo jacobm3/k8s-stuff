@@ -93,15 +93,16 @@ path "secret/*" {
 }
 EOF
 
-vault write auth/jwt/role/jwt-demo \\
+vault write auth/jwt/role/demo \\
    role_type="jwt" \\
+   bound_audiences="https://kubernetes.default.svc.cluster.local" \\
    user_claim="sub" \\
    bound_subject="system:serviceaccount:ns-demo:sa-demo" \\
    policies="jwt-demo" \\
    ttl="1h"
 
 vault write auth/jwt/login \\
-   role=jwt-demo \\
+   role=demo \\
    jwt=@k8s.token
 
 EOX
