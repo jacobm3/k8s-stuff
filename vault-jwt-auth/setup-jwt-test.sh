@@ -95,7 +95,6 @@ EOF
 
 vault write auth/jwt/role/jwt-demo \\
    role_type="jwt" \\
-   bound_audiences="https://kubernetes.default.svc.cluster.local" \\
    user_claim="sub" \\
    bound_subject="system:serviceaccount:ns-demo:sa-demo" \\
    policies="jwt-demo" \\
