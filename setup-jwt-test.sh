@@ -1,6 +1,12 @@
 #!/bin/bash
-
-# https://dev.to/thenjdevopsguy/creating-a-kubernetes-service-account-to-run-pods-3ef9
+#
+# This script runs nginx in a k8s namespace and service account,
+# then outputs the Vault commands to configure JWT authentication
+# for the nginx service account.
+#
+# It relies on the jwks2pem script in this same directory to 
+# convert the JWKS key to PEM format, as required by Vault.
+#
 
 cat > demo-namespace.yaml <<EOF
 apiVersion: v1
@@ -61,21 +67,42 @@ EOF
 
 kubectl apply -f demo-pod.yaml
 
-kubectl exec --stdin --tty nginxpod --namespace ns-demo -- /bin/bash <<EOF
-echo
-echo token:
-cat /run/secrets/kubernetes.io/serviceaccount/token
-echo
-echo
-echo ca.crt:
-cat /run/secrets/kubernetes.io/serviceaccount/ca.crt
-echo
-echo
-echo namespace:
-cat /run/secrets/kubernetes.io/serviceaccount/namespace
-echo
-echo
+# Retry this until the nginx pod is ready
+until kubectl exec --stdin --tty nginxpod --namespace ns-demo -- \
+  cat /run/secrets/kubernetes.io/serviceaccount/token > k8s.token 2>/dev/null;
+do sleep 0.5; done
+
+# Get JWT signing CA cert
+kubectl get --raw "$(kubectl get --raw /.well-known/openid-configuration | jq -r '.jwks_uri' )" | \
+  jq -r .keys[0] | ./jwks2pem > k8s.pem
+
+cat <<EOX
+
+#
+# Vault Setup Commands
+#
+
+vault auth enable jwt
+
+vault write auth/jwt/config \\
+   jwt_validation_pubkeys=@k8s.pem
+
+vault policy write jwt-demo - <<EOF
+path "secret/*" {
+  capabilities = ["read", "update", "list", "delete"]
+}
 EOF
 
+vault write auth/jwt/role/jwt-demo \\
+   role_type="jwt" \\
+   bound_audiences="https://kubernetes.default.svc.cluster.local" \\
+   user_claim="sub" \\
+   bound_subject="system:serviceaccount:ns-demo:sa-demo" \\
+   policies="jwt-demo" \\
+   ttl="1h"
 
+vault write auth/jwt/login \\
+   role=jwt-demo \\
+   jwt=@k8s.token
 
+EOX
