@@ -76,6 +76,12 @@ do sleep 0.5; done
 kubectl get --raw "$(kubectl get --raw /.well-known/openid-configuration | jq -r '.jwks_uri' )" | \
   jq -r .keys[0] | ./jwks2pem > k8s.pem
 
+# Get the JWT audience, needed in Vault's role config
+AUD=$(kubectl exec nginxpod --namespace ns-demo -- \
+  cat /var/run/secrets/kubernetes.io/serviceaccount/token | \
+  cut -f2 -d. | base64 --decode 2>/dev/null  | jq .aud[0])
+
+
 cat <<EOX
 
 #
@@ -95,7 +101,7 @@ EOF
 
 vault write auth/jwt/role/demo \\
    role_type="jwt" \\
-   bound_audiences="https://kubernetes.default.svc.cluster.local" \\
+   bound_audiences=$AUD \\
    user_claim="sub" \\
    bound_subject="system:serviceaccount:ns-demo:sa-demo" \\
    policies="jwt-demo" \\
